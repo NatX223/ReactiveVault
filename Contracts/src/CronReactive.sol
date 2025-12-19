@@ -6,29 +6,26 @@ import "../lib/reactive-lib/src/abstract-base/AbstractPausableReactive.sol";
 import "../lib/reactive-lib/src/interfaces/IReactive.sol";
 
 /**
- * @title SwapReactive
- * @dev Reactive contract that monitors swap events and triggers collateral supply in leverage loop
- * @notice This contract listens for swap completion events and automatically triggers
- *         the supply operation in the Looper contract to continue the leverage cycle
+ * @title AaveReserveReactive
+ * @dev Reactive contract that monitors ReserveDataUpdated event from the Aave pool contract
+ * @notice This contract listens for reserve data updated events and checks the APY diference
+ *         between Aave and Compound before sending a callback to the Vault contract.
  */
-contract SwapReactive is IReactive, AbstractPausableReactive {
+contract AaveReserveReactive is IReactive, AbstractPausableReactive {
     /** @dev Maximum gas limit allocated for callback execution to prevent out-of-gas errors */
     uint64 private constant GAS_LIMIT = 1000000;
     
     /** @dev Address of the reactive system service contract that manages event subscriptions */
     address public constant SERVICE = 0x0000000000000000000000000000000000fffFfF;
 
+    /** @dev Event topic hash used to subscribe to cron events */
+    uint256 private cron_topic;
+
+    /** @dev Address of the Vault contract that will receive callback notifications */
+    address public vault;
+
     /** @dev Chain ID for Ethereum Sepolia testnet */
     uint256 private chainId = 11155111;
-
-    /** @dev Event topic hash used to subscribe to swap completion events from the swapper contract */
-    uint256 private eventTopic0 = 0x783bd8472ba2d01baf38569a5cdfaaa209e19da07cfaa1008df9cd1597910389;
-
-    /** @dev Address of the Looper contract that will receive callback notifications */
-    address public looper;
-
-    /** @dev Address of the Swapper contract to monitor for swap completion events */
-    address public swapper;
 
     /*
      * Event emitted when the contract receives Ether payments
@@ -44,22 +41,19 @@ contract SwapReactive is IReactive, AbstractPausableReactive {
 
     /**
      * @dev Initializes the SwapReactive contract and sets up event subscription
-     * @param _looper Address of the Looper contract to send callbacks to
-     * @param _swapper Address of the Swapper contract to monitor for swap events
-     * @notice Automatically subscribes to swap completion events from the specified swapper
+     * @param _vault Address of the Vault contract that will receive callback notifications
+     * @param _cron_topic Cron topic for the time frame the user wants
+     * @notice Automatically subscribes to reserve data updated from the pool address
      */
-    constructor(
-        address _looper,
-        address _swapper
-    ) payable {
-        looper = _looper;
-        swapper = _swapper;
+    constructor(address _vault, uint256 _cron_topic) payable {
+        vault = _vault;
+        cron_topic = _cron_topic;
         service = ISystemContract(payable(SERVICE));
         if (!vm) {
             service.subscribe(
-                chainId,
-                _swapper,
-                eventTopic0,
+                block.chainid,
+                address(service),
+                _cron_topic,
                 REACTIVE_IGNORE,
                 REACTIVE_IGNORE,
                 REACTIVE_IGNORE
@@ -82,7 +76,7 @@ contract SwapReactive is IReactive, AbstractPausableReactive {
         result[0] = Subscription(
             chainId,
             address(SERVICE),
-            eventTopic0,
+            cron_topic,
             REACTIVE_IGNORE,
             REACTIVE_IGNORE,
             REACTIVE_IGNORE
@@ -91,25 +85,19 @@ contract SwapReactive is IReactive, AbstractPausableReactive {
     }
 
     /**
-     * @dev Reacts to swap completion events and triggers the supply operation in Looper
-     * @param log The log record containing the swap event data
-     * @notice When a swap is completed for the Looper contract, this function automatically
-     *         triggers operation 0 (supply) to supply the swapped collateral back to Aave
+     * @dev Reacts to reserve data updated events and triggers the rebalance operation in vault contract
+     * @param log The log record containing the reserve data updated event data
+     * @notice Periodic check sent to the Vault contract to check for best yeild and rebalance
      */
     function react(LogRecord calldata log) external vmOnly {
-        /** @dev Extract the destination address from the log topic */
-        address swapper_ = address(uint160(log.topic_2));
 
-        if (swapper_ == looper) {
-            /** @dev Encode callback payload for supply operation (operation 0) */
-            bytes memory payload = abi.encodeWithSignature(
-                "callback(address,uint256)",
-                address(0),
-                0
-            );
+        /** @dev Encode callback payload for supply operation (operation 0) */
+        bytes memory payload = abi.encodeWithSignature(
+            "callback(address)",
+            address(0)
+        );
 
-            emit Callback(chainId, looper, GAS_LIMIT, payload);
-        }
+        emit Callback(chainId, vault, GAS_LIMIT, payload);
     }
 
     /*

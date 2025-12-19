@@ -23,6 +23,9 @@ contract Vault is AbstractCallback, Ownable, ERC20 {
     /** @dev Total amount of vault tokens in circulation*/
     uint256 public circulatingSupply;
 
+    /** @dev The current protocol pool the funds and in at the moment - 0 for aave, 1 for compound */
+    uint8 private currentPool;
+
     /** @dev Aave V3 pool addresses provider contract interface */
     IPoolAddressesProvider public immutable ADDRESS_PROVIDER;
     
@@ -76,5 +79,5 @@ contract Vault is AbstractCallback, Ownable, ERC20 {
 
         emit fundsWithdrawal(msg.sender, amount, amount);
     }
-    
+
 }
