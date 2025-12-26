@@ -7,144 +7,183 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../lib/aave-v3-core/contracts/interfaces/IPoolAddressesProvider.sol";
 import "../lib/aave-v3-core/contracts/interfaces/IPool.sol";
-import "../lib/aave-v3-core/contracts/interfaces/IPriceOracle.sol";
+import {DataTypes} from "../lib/aave-v3-core/contracts/protocol/libraries/types/DataTypes.sol";
 import "./library/TransferHelper.sol";
 import "./WethConverter.sol";
 import "./IComet.sol";
 
+/**
+ * @title Reactive Yield Vault
+ * @notice Optimizes yield by switching between Aave and Compound v3 using Reactive Network callbacks.
+ */
 contract Vault is AbstractCallback, Ownable, ERC20, WETHConverter {
-    /** @dev Address of the reactive system service contract */
+    // --- Constants ---
     address public constant SERVICE = 0xc9f36411C9897e7F959D99ffca2a0Ba7ee0D7bDA;
+    uint256 private constant YIELD_THRESHOLD = 100; // 1% in basis points (100 = 1.00%)
+    uint256 private constant RAY = 1e27;
+    uint256 private constant WAD = 1e18;
+    uint256 private constant SECONDS_PER_YEAR = 31536000;
 
-    /** @dev Address of the WETH token on Aave*/
-    address public aaveWeth;
-
-    /** @dev Address of the WETH token on Compound*/
-    address public compoundWeth;
-
-    /** @dev Total amount of vault tokens in circulation*/
+    // --- State Variables ---
+    address public immutable aaveWeth;
+    address public immutable compoundWeth;
+    address public immutable aTokenWeth; // Cached for gas efficiency
     uint256 public circulatingSupply;
+    
+    uint8 public currentPool; // 0 for Aave, 1 for Compound
 
-    /** @dev The current protocol pool the funds and in at the moment - 0 for aave, 1 for compound */
-    uint8 private currentPool;
-
-    /** @dev Aave V3 pool addresses provider contract interface */
-    IPoolAddressesProvider public immutable ADDRESS_PROVIDER;
-
-    /** @dev Aave V3 pool contract interface for lending operations */
     IPool public immutable Pool;
-
-    /** @dev Compound V3 comet(cWETHv3) contract interface for lending operations */
     IComet public immutable Comet;
 
-    /** @dev Aave V3 price oracle interface for asset pricing */
-    IPriceOracle public immutable priceOracle;
+    // --- Events ---
+    event FundsDeposit(address indexed sender, uint256 amount, uint256 sharesMinted);
+    event FundsWithdrawal(address indexed sender, uint256 amount, uint256 sharesBurned);
+    event OptimalPoolActive(uint8 indexed currentPool, uint256 aaveRate, uint256 compoundRate);
+    event PoolSwitched(uint8 indexed fromPool, uint8 indexed toPool, uint256 amount);
 
-    /** @dev Aave V3 Base Currency (e.g., USD) uses 8 decimals for pricing */
-    uint8 private constant BASE_CURRENCY_DECIMALS = 8;
-
-    /** @dev Event emitted when collateral tokens are deposited into the vault */
-    event fundsDeposit(
-        address indexed sender,
-        uint256 amount,
-        uint256 mintAmount
-    );
-
-    /** @dev Event emitted when collateral tokens are withdrawn from the vault */
-    event fundsWithdrawal(
-        address indexed sender,
-        uint256 amount,
-        uint256 burnAmount
-    );
-
-    // /**
-    //  * @dev Initializes the Looper contract with required addresses and interfaces
-    //  * @param _poolAddressProvider Address of Aave V3 pool addresses provider
-    //  * @param name_ Name of the token minted to represent vault shares
-    //  * @param symbol_ Symbol of the token minted to represent vault shares
-    //  */
     constructor(
-        address aaveWeth_,
-        address compoundWeth_,
+        address _aaveWeth,
+        address _compoundWeth,
         address _poolAddressProvider,
         address _cometAddress,
-        string memory name_,
-        string memory symbol_
+        string memory _name,
+        string memory _symbol
     )
-    payable AbstractCallback(SERVICE) Ownable(msg.sender) ERC20(name_, symbol_) WETHConverter(aaveWeth_, compoundWeth_) {
-        ADDRESS_PROVIDER = IPoolAddressesProvider(_poolAddressProvider);
-        Pool = IPool(ADDRESS_PROVIDER.getPool());
+        payable
+        AbstractCallback(SERVICE)
+        Ownable(msg.sender)
+        ERC20(_name, _symbol)
+        WETHConverter(_aaveWeth, _compoundWeth)
+    {
+        aaveWeth = _aaveWeth;
+        compoundWeth = _compoundWeth;
+        
+        IPoolAddressesProvider provider = IPoolAddressesProvider(_poolAddressProvider);
+        Pool = IPool(provider.getPool());
         Comet = IComet(_cometAddress);
-    }
 
-    function deposit(uint256 amount) external payable {
-        require(msg.value == amount, "Deposit amount must match the sent value");
+        // Cache aToken address to save gas on balance checks
+        aTokenWeth = Pool.getReserveData(_aaveWeth).aTokenAddress;
 
-        _supply(amount);
-
-        uint256 mintValue = amount * 10;
-        _mint(msg.sender, mintValue);
-        circulatingSupply += mintValue;
-
-        emit fundsDeposit(msg.sender, msg.value, mintValue);
-    }
-
-    function withdraw(uint256 amount) external {
-        uint256 withdrawAmount = amount / 10;
-        _burn(msg.sender, amount);
-        circulatingSupply -= amount;
-
-        emit fundsWithdrawal(msg.sender, amount, amount);
+        // Infinite Approval to Protocol Contracts
+        IERC20(_aaveWeth).approve(address(Pool), type(uint256).max);
+        IERC20(_compoundWeth).approve(address(Comet), type(uint256).max);
     }
 
     /**
-     * @dev Internal function to supply funds to the current active pool
-     * @param amount The amount of ETH to supply to the lending pool
+     * @notice Deposits ETH, wraps to WETH, and supplies to the current optimal pool.
      */
-    function _supply(uint256 amount) internal {
-        require(amount > 0, "Supply amount must be greater than 0");
+    function deposit(uint256 amount) external payable {
+        require(msg.value == amount, "Inconsistent ETH amount");
+        
+        // Wrap and supply
+        _supply(amount);
 
-        if (currentPool == 0) {
-            // Supply to Aave pool
-            _supplyToAave(amount);
-        } else if (currentPool == 1) {
-            // Supply to Compound pool
-            _supplyToCompound(amount);
+        _mint(msg.sender, amount);
+        circulatingSupply += amount;
+        
+        emit FundsDeposit(msg.sender, amount, amount);
+    }
+
+    /**
+     * @notice Withdraws ETH from the vault by burning shares.
+     */
+    function withdraw(uint256 amount) external {
+        _burn(msg.sender, amount);
+        circulatingSupply -= amount;
+
+        // Withdraw from whichever pool is active
+        _withdrawFromCurrentPool(amount);
+        // Unwrap and send ETH
+        withdrawAmount(currentPool, msg.sender, amount);
+
+        emit FundsWithdrawal(msg.sender, amount, amount);
+    }
+
+    /**
+     * @notice Main callback triggered by the Reactive Network.
+     */
+    function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender) {
+        uint256 aaveRate = aaveRateFetcher();
+        uint256 compRate = compoundRateFetcher();
+
+        bool aaveBetter = (aaveRate > (compRate + YIELD_THRESHOLD)) && (currentPool == 1);
+        bool compBetter = (compRate > (aaveRate + YIELD_THRESHOLD)) && (currentPool == 0);
+
+        if (aaveBetter || compBetter) {
+            _switchPool(aaveBetter ? 0 : 1);
         } else {
-            revert("Invalid pool identifier");
+            emit OptimalPoolActive(currentPool, aaveRate, compRate);
+        }
+    }
+
+    // --- Rate Fetchers ---
+
+    function aaveRateFetcher() public view returns (uint256) {
+        DataTypes.ReserveData memory data = Pool.getReserveData(aaveWeth);
+        return (uint256(data.currentLiquidityRate) * 10000) / RAY;
+    }
+
+    function compoundRateFetcher() public view returns (uint256) {
+        uint256 utilization = Comet.getUtilization();
+        uint256 supplyRate = uint256(Comet.getSupplyRate(utilization));
+        return (supplyRate * SECONDS_PER_YEAR * 10000) / WAD;
+    }
+
+    // --- Internal Logic ---
+
+    function _supply(uint256 amount) internal {
+        if (currentPool == 0) {
+            obtainAaveWETH(amount);
+            Pool.supply(aaveWeth, amount, address(this), 0);
+        } else {
+            obtainCompoundWETH(amount);
+            Comet.supply(compoundWeth, amount);
         }
     }
 
     /**
-     * @dev Internal function to supply ETH to Aave V3 pool
-     * @param amount The amount of ETH to supply
+     * @dev Core rebalancing logic. Moves 100% of funds to the target pool.
      */
-    function _supplyToAave(uint256 amount) internal {
-        // get aave weth
-        obtainAaveWETH(amount);
-        // Supply ETH to Aave pool 
-        TransferHelper.safeApprove(aaveWeth, address(Pool), amount);
-        Pool.supply(
-            aaveWeth,
-            amount,
-            address(this),
-            0
-        );
+    function _switchPool(uint8 targetPool) internal {
+        uint8 fromPool = currentPool;
+        
+        // 1. Withdraw ALL (including interest dust)
+        if (currentPool == 0) {
+            Pool.withdraw(aaveWeth, type(uint256).max, address(this));
+        } else {
+            Comet.withdraw(compoundWeth, type(uint256).max);
+        }
+
+        // 2. Identify new balance (Principal + Interest)
+        uint256 totalToMove = IERC20(targetPool == 0 ? aaveWeth : compoundWeth).balanceOf(address(this));
+
+        // 3. Supply to new target
+        if (targetPool == 0) {
+            convertwethComTowethAave(totalToMove);
+            Pool.supply(aaveWeth, totalToMove, address(this), 0);
+        } else {
+            convertwethAaveTowethCom(totalToMove);
+            Comet.supply(compoundWeth, totalToMove);
+        }
+
+        currentPool = targetPool;
+        emit PoolSwitched(fromPool, targetPool, totalToMove);
     }
 
-    /**
-     * @dev Internal function to supply ETH to Compound pool
-     * @param amount The amount of ETH to supply
-     */
-    function _supplyToCompound(uint256 amount) internal {
-        obtainCompoundWETH(amount);
-        
-        // Supply ETH to Compound pool
-        TransferHelper.safeApprove(compoundWeth, address(Comet), amount);
-        Comet.supply(
-            compoundWeth,
-            amount
-        );
-        revert("Compound supply not yet implemented");
+    function _getTotalSupplied() internal view returns (uint256) {
+        if (currentPool == 0) {
+            return IERC20(aTokenWeth).balanceOf(address(this));
+        } else {
+            return Comet.balanceOf(address(this));
+        }
+    }
+
+    function _withdrawFromCurrentPool(uint256 amount) internal {
+        if (currentPool == 0) {
+            Pool.withdraw(aaveWeth, amount, address(this));
+        } else {
+            Comet.withdraw(compoundWeth, amount);
+        }
     }
 }

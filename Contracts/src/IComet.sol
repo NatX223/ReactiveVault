@@ -5,4 +5,10 @@ interface IComet {
     function supply(address asset, uint amount) external;
 
     function withdraw(address asset, uint amount) external;
+
+    function getUtilization() external view returns (uint256);
+
+    function balanceOf(address account) external view returns (uint256);
+
+    function getSupplyRate(uint utilization) external view returns (uint64);
 }

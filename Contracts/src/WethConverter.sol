@@ -90,23 +90,11 @@ contract WETHConverter {
     function _convert(IWETH fromWETH, IWETH toWETH, uint256 amount) internal {
         require(amount > 0, "Amount must be greater than 0");
 
-        // // Transfer WETH from user to this contract
-        // require(
-        //     fromWETH.transferFrom(msg.sender, address(this), amount),
-        //     "Transfer failed"
-        // );
-
         // Withdraw ETH from the source WETH
         fromWETH.withdraw(amount);
 
         // Deposit ETH to the target WETH
         toWETH.deposit{value: amount}();
-
-        // // Transfer the new WETH back to user
-        // require(
-        //     toWETH.transfer(msg.sender, amount),
-        //     "Transfer back failed"
-        // );
 
         emit WETHConverted(
             msg.sender,
@@ -116,8 +104,16 @@ contract WETHConverter {
         );
     }
 
-    // Emergency function to recover any ETH stuck in contract
-    function emergencyWithdraw() public {
-        payable(msg.sender).transfer(address(this).balance);
+    // function to withdraw and weth
+    function withdrawAmount(uint256 currentPool, address to, uint256 amount) public {
+        if (currentPool == 0) {
+            wethAave.withdraw(amount);
+            (bool success, ) = payable(to).call{value: amount}("");
+            require(success, "ETH transfer failed");
+        } else {
+            wethCom.withdraw(amount);
+            (bool success, ) = payable(to).call{value: amount}("");
+            require(success, "ETH transfer failed");            
+        }
     }
 }
