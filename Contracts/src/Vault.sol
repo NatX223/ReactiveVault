@@ -68,6 +68,19 @@ contract Vault is AbstractCallback, Ownable, ERC20, WETHConverter {
         // Infinite Approval to Protocol Contracts
         IERC20(_aaveWeth).approve(address(Pool), type(uint256).max);
         IERC20(_compoundWeth).approve(address(Comet), type(uint256).max);
+
+        setPool();
+    }
+
+    function setPool() internal {
+        uint256 aaveRate = aaveRateFetcher();
+        uint256 compRate = compoundRateFetcher();
+
+        if (aaveRate > compRate) {
+            currentPool = 0;
+        } else if (compRate > aaveRate) {
+            currentPool = 1;
+        }
     }
 
     /**
