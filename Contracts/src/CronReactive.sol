@@ -6,12 +6,12 @@ import "../lib/reactive-lib/src/abstract-base/AbstractPausableReactive.sol";
 import "../lib/reactive-lib/src/interfaces/IReactive.sol";
 
 /**
- * @title AaveReserveReactive
+ * @title CronReactive
  * @dev Reactive contract that monitors ReserveDataUpdated event from the Aave pool contract
  * @notice This contract listens for reserve data updated events and checks the APY diference
  *         between Aave and Compound before sending a callback to the Vault contract.
  */
-contract AaveReserveReactive is IReactive, AbstractPausableReactive {
+contract CronReactive is IReactive, AbstractPausableReactive {
     /** @dev Maximum gas limit allocated for callback execution to prevent out-of-gas errors */
     uint64 private constant GAS_LIMIT = 1000000;
     
