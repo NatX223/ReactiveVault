@@ -20,10 +20,7 @@ export default function Home() {
       {/* Header */}
       <header className="container mx-auto px-6 py-6 flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-primary rounded-lg flex items-center justify-center">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
-          <h1 className="text-2xl font-clash font-bold text-white">ReactiveLooper</h1>
+          <h1 className="text-2xl font-clash font-bold text-white">ReactiveVault</h1>
         </div>
         <SimpleWalletConnect />
       </header>
@@ -33,12 +30,11 @@ export default function Home() {
         <div className="max-w-4xl mx-auto text-center mb-16">
           <h2 className="text-5xl md:text-6xl font-clash font-bold mb-6 text-center">
             <span className="bg-gradient-to-r from-blue-400 via-purple-500 to-purple-600 bg-clip-text text-transparent block">
-              Optimize Your DeFi Leverage
+              Yield optimizing Vault
             </span>
           </h2>
           <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Execute complex multi-step DeFi operations in a single atomic transaction, 
-            eliminating gas waste and price risk exposure.
+            ReactiveVault chooses the best pools based on APY and invests funds into such pools
           </p>
           {isConnected ? (
             <Link href="/app">
@@ -66,9 +62,7 @@ export default function Home() {
               Problem Statement
             </h3>
             <p className="text-gray-300 leading-relaxed">
-              Achieving optimal leverage in decentralized finance typically involves complex, 
-              multi-step transaction sequences which are vulnerable to high gas costs and 
-              critical exposure to price risk between operations.
+            DeFi yields flip constantly between DeFi pools, yet capital remains stagnant. Traditional smart contracts lack on-chain monitoring, forced to rely on slow, centralized off-chain triggers. This "blindness" causes execution latency and Yield Erosion, preventing capital from autonomously capturing the market's best rates.
             </p>
           </div>
         </section>
@@ -81,12 +75,7 @@ export default function Home() {
               Solution
             </h3>
             <p className="text-gray-300 leading-relaxed">
-              The project introduces a custom smart contract architecture that utilizes 
-              Reactive network's smart contract automation to orchestrate the multi-step execution. 
-              This automation enables the seamless operation of the recursive supply-borrow-swap 
-              loop within a single, atomic transaction, saving critical time and eliminating the 
-              exposure window to asset volatility, which is a major risk when transactions must 
-              be submitted individually.
+            Powered by Reactive Network’s native cron functionality, our vault operates with total autonomy, eliminating the need for centralized keepers. It continuously calculates real-time APYs across Aave and Compound, automatically migrating capital to the highest-yielding pool. This replaces passive stagnation with a self-optimizing, zero-intervention strategy that captures peak yield 24/7.
             </p>
           </div>
         </section>
@@ -99,11 +88,11 @@ export default function Home() {
               How It Works
             </h3>
             <p className="text-gray-300 leading-relaxed">
-              ReactiveLooper utilizes the Reactive and Callback functionality from Reactive network 
-              to monitor and react accordingly to supply and borrow events from the Aave V3 pool contract. 
-              It also monitors the swapper contract (specifically created for this project to swap 
-              between the collateral and borrow assets). All steps in the loop are contained in one 
-              call back contract.
+              ReactiveVault utilizes the Cron and Callback functionality from Reactive network 
+              to periodically monitor and react accordingly to check for the optimal pool and supply 
+              the vault funds to that pool. 
+              There are also user facing functions that allow users to deposit into the pool and withdraw 
+              thus enabling anyone invest in high yielding pools efectively.
             </p>
           </div>
         </section>
@@ -114,9 +103,9 @@ export default function Home() {
             <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center mb-4">
               <Zap className="w-6 h-6 text-white" />
             </div>
-            <h4 className="font-clash font-bold text-white mb-2">Atomic Execution</h4>
+            <h4 className="font-clash font-bold text-white mb-2">Cron Monitoring</h4>
             <p className="text-gray-300 text-sm">
-              All operations execute in a single transaction, eliminating intermediate risks.
+              Periodic monitoring for the optimal pool to supply to.
             </p>
           </div>
           
@@ -124,9 +113,9 @@ export default function Home() {
             <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center mb-4">
               <Shield className="w-6 h-6 text-white" />
             </div>
-            <h4 className="font-clash font-bold text-white mb-2">Risk Mitigation</h4>
+            <h4 className="font-clash font-bold text-white mb-2">Accurate yield calculation</h4>
             <p className="text-gray-300 text-sm">
-              Minimize exposure to price volatility and MEV attacks during execution.
+              Accurate yield calculation on both pools to find the best one.
             </p>
           </div>
           
@@ -134,9 +123,9 @@ export default function Home() {
             <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center mb-4">
               <TrendingUp className="w-6 h-6 text-white" />
             </div>
-            <h4 className="font-clash font-bold text-white mb-2">Gas Optimization</h4>
+            <h4 className="font-clash font-bold text-white mb-2">Yield threshold</h4>
             <p className="text-gray-300 text-sm">
-              Reduce overall gas costs by batching multiple operations efficiently.
+              strong yield threshold to avoid neglegible yield difference thus leading to gas optimization.
             </p>
           </div>
         </section>
@@ -145,10 +134,10 @@ export default function Home() {
         <section className="text-center">
           <div className="bg-gradient-primary rounded-2xl p-8 text-white">
             <h3 className="text-3xl font-clash font-bold mb-4">
-              Ready to Optimize Your DeFi Strategy?
+              Ready to Optimize Your capita?
             </h3>
             <p className="text-white/90 mb-6 max-w-2xl mx-auto">
-              Join the future of decentralized finance with automated, risk-minimized leverage operations.
+              Start exploring.
             </p>
             {isConnected ? (
               <Link href="/app">

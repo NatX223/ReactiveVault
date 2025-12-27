@@ -3,6 +3,10 @@
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from '@/contexts/WalletContext'
+import { WagmiProvider } from 'wagmi'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { config } from '@/lib/wagmi'
+import { useState } from 'react'
 
 const inter = Inter({
   variable: "--font-inter",
@@ -19,12 +23,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [queryClient] = useState(() => new QueryClient())
+
   return (
     <html lang="en">
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
-        <WalletProvider>
-          {children}
-        </WalletProvider>
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            <WalletProvider>
+              {children}
+            </WalletProvider>
+          </QueryClientProvider>
+        </WagmiProvider>
       </body>
     </html>
   );
