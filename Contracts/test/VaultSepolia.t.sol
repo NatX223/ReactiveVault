@@ -36,8 +36,8 @@ contract VaultSepoliaTest is Test {
     address public user2 = makeAddr("user2");
 
     // ============ TEST CONSTANTS ============
-    uint256 public constant DEPOSIT_AMOUNT = 0.1 ether;
-    uint256 public constant LARGE_DEPOSIT = 1 ether;
+    uint256 public constant DEPOSIT_AMOUNT = 0.00001 ether;
+    uint256 public constant LARGE_DEPOSIT = 0.01 ether;
 
     function setUp() public {
         // Setup multiple Sepolia RPC endpoints for fallback
