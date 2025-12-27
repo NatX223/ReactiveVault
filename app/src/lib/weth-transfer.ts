@@ -1,5 +1,19 @@
 import { ethers } from 'ethers'
 
+// Ethereum provider types
+interface EthereumProvider {
+  request: (args: { method: string; params?: any[] }) => Promise<any>
+  on: (event: string, callback: (...args: any[]) => void) => void
+  removeListener: (event: string, callback: (...args: any[]) => void) => void
+  isMetaMask?: boolean
+}
+
+declare global {
+  interface Window {
+    ethereum?: EthereumProvider
+  }
+}
+
 // WETH contract address (the one you specified)
 export const WETH_CONTRACT_ADDRESS = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c"
 
