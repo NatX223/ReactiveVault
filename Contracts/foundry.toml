@@ -23,7 +23,11 @@ depth = 15
 [rpc_endpoints]
 sepoliaRPC = "${SEPOLIA_RPC_URL}"
 lasnaRPC = "${LASNA_RPC_URL}"
-cronosRPC = "${CRONOS_RPC_URL}"
+# Multiple Sepolia RPC endpoints for fallback
+sepolia = "https://rpc.sepolia.org"
+sepolia_infura = "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161"
+sepolia_public = "https://ethereum-sepolia-rpc.publicnode.com"
+sepolia_tenderly = "https://sepolia.gateway.tenderly.co"
 [profile.private_key]
 privatekey = "${PRIVATE_KEY}"
 [profile.event_hashes]
