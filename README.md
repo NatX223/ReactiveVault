@@ -18,28 +18,37 @@ ReactiveVault - yield optimizing DeFi vault
 8. [Acknowledgments](#acknowledgments)  
 
 ---  
-<!-- 
+
 ## Overview  
 
-Reactive and callback contracts need constant funding with REACT or native tokens to stay active. Without this, they become inactive, especially when tracking high-volume events. Developers are forced to manually monitor and top up contracts, leading to downtime and missed events.
+Yield optimization between Aave and Compound traditionally requires manual monitoring or fragile off-chain bots. These methods are 
+prone to execution latency and "Yield Erosion," where capital sits in sub-optimal pools while market rates shift. Because standard 
+smart contracts are "blind" to external state changes, they cannot move funds autonomously when opportunities arise.
 
-Reactivate automates this process. It deploys monitoring and funding contracts that track events, check balances, and refill when needed. If a contract becomes inactive, coverDebt() is triggered to restore it. This makes Reactive contracts self-sustaining, reliable, and production-ready.
+ReactiveVault eliminates this friction. By leveraging the Reactive Network’s native cron functionality, the vault monitors real-time 
+APY differentials and executes rebalancing logic directly on-chain. If a rate flip exceeds the defined threshold, the vault 
+autonomously migrates 100% of the capital to the highest-yielding pool. This makes yield farming self-sustaining, trustless, and 
+perpetually optimized without a single manual transaction.
 
 ---  
 
 ## Problem Statement  
 
-Reactive contracts and callback contracts need REACT tokens and native tokens on other chains to be kept active otherwise they will become inactive due to lack tokens to run them, thus there needs to be constant manual monitoring of these contracts by the developers especially for reactive contracts that track high volume events like token transfers and approvals.
+DeFi yields flip constantly between Aave and Compound, yet capital remains stagnant. Traditional smart contracts lack on-chain 
+monitoring, forced to rely on slow, centralized off-chain triggers. This "blindness" causes execution latency and Yield Erosion, 
+preventing capital from autonomously capturing the market's best rates.
 
 ---  
 
 ## Solution  
 
-Reactivate solves this pain point by automated monitoring, topping up and reactivation of reactive and callback contracts using reactive contracts of it's own. The solution is well suited for reactive contracts and the reactive ecosystem because it tracks the event emiited in the callback contract the user specifies and checks the balance of both reactive and callback contracts after every event and if the balance is below a specific threshold or has become inactive, the reactivate callback contract automatically funds the user specified contracts and if needed calls the "coverDebt()" function to reactivate them.
+Powered by Reactive Network’s native cron functionality, our vault operates with total autonomy, eliminating the need for centralized 
+keepers. It continuously calculates real-time APYs across Aave and Compound, automatically migrating capital to the highest-yielding 
+pool. This replaces passive stagnation with a self-optimizing, zero-intervention strategy that captures peak yield 24/7.
 
 ---  
-
-## How It Works  
+<!-- 
+## How It Works 
 
 The working mechanism of the dapp can be broken down into 4 steps
 
