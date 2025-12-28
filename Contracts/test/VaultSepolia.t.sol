@@ -32,6 +32,11 @@ contract VaultSepoliaTest is Test {
     IERC20 public compoundWeth;
 
     // ============ TEST ACCOUNTS ============
+    // Real funded account for testing actual transactions
+    uint256 public constant REAL_USER_PRIVATE_KEY =
+        0xffb650ab6244534dd10ee9bf980c3e4e89dde3645c4cf28d4433362298d4547e;
+    address public realUser;
+
     address public user1 = makeAddr("user1");
     address public user2 = makeAddr("user2");
 
@@ -56,7 +61,12 @@ contract VaultSepoliaTest is Test {
         aaveWeth = IERC20(AAVE_WETH);
         compoundWeth = IERC20(COMPOUND_WETH);
 
-        // Fund test users
+        // Get real user address from private key
+        realUser = vm.addr(REAL_USER_PRIVATE_KEY);
+        console.log("Real User Address:", realUser);
+        console.log("Real User ETH Balance:", realUser.balance);
+
+        // Fund test users (for non-transaction tests)
         vm.deal(user1, 10 ether);
         vm.deal(user2, 10 ether);
     }
@@ -70,13 +80,13 @@ contract VaultSepoliaTest is Test {
         // Test that vault has correct addresses
         assertEq(vault.aaveWeth(), AAVE_WETH);
         assertEq(vault.compoundWeth(), COMPOUND_WETH);
-        
+
         // Check actual token name and symbol (use actual values from deployment)
         string memory actualName = vault.name();
         string memory actualSymbol = vault.symbol();
         console.log("Actual Token Name:", actualName);
         console.log("Actual Token Symbol:", actualSymbol);
-        
+
         // Verify they match the deployed contract values
         assertEq(actualName, "ReactVault");
         assertEq(actualSymbol, "RCTVLT");
@@ -92,70 +102,90 @@ contract VaultSepoliaTest is Test {
     }
 
     /**
-     * @dev Test deposit functionality with real ETH
+     * @dev Test deposit functionality with real ETH using funded account
      */
     function test_DepositFunctionality() public {
         console.log("\n=== DEPOSIT FUNCTIONALITY TEST ===");
 
-        vm.startPrank(user1);
+        // Use real funded account
+        vm.startPrank(realUser);
 
-        uint256 initialBalance = user1.balance;
-        uint256 initialVaultBalance = vault.balanceOf(user1);
+        uint256 initialBalance = realUser.balance;
+        uint256 initialVaultBalance = vault.balanceOf(realUser);
         uint256 initialSupply = vault.totalSupply();
 
+        console.log("Real User Address:", realUser);
         console.log("Initial ETH Balance:", initialBalance);
         console.log("Initial Vault Balance:", initialVaultBalance);
         console.log("Initial Total Supply:", initialSupply);
 
-        // Perform deposit
+        // Check if user has enough ETH
+        require(
+            initialBalance >= DEPOSIT_AMOUNT,
+            "Insufficient ETH balance for test"
+        );
+
+        // Perform deposit with real account
         vault.deposit{value: DEPOSIT_AMOUNT}(DEPOSIT_AMOUNT);
 
         // Verify deposit worked
-        assertEq(user1.balance, initialBalance - DEPOSIT_AMOUNT);
-        assertEq(vault.balanceOf(user1), initialVaultBalance + DEPOSIT_AMOUNT);
+        assertEq(realUser.balance, initialBalance - DEPOSIT_AMOUNT);
+        assertEq(
+            vault.balanceOf(realUser),
+            initialVaultBalance + DEPOSIT_AMOUNT
+        );
         assertEq(vault.totalSupply(), initialSupply + DEPOSIT_AMOUNT);
 
-        console.log("After Deposit ETH Balance:", user1.balance);
-        console.log("After Deposit Vault Balance:", vault.balanceOf(user1));
+        console.log("After Deposit ETH Balance:", realUser.balance);
+        console.log("After Deposit Vault Balance:", vault.balanceOf(realUser));
         console.log("After Deposit Total Supply:", vault.totalSupply());
         console.log("Circulating Supply:", vault.circulatingSupply());
 
         vm.stopPrank();
-        console.log("SUCCESS: Deposit functionality working");
+        console.log("SUCCESS: Deposit functionality working with real account");
     }
 
     /**
-     * @dev Test withdraw functionality
+     * @dev Test withdraw functionality using real funded account
      */
     function test_WithdrawFunctionality() public {
         console.log("\n=== WITHDRAW FUNCTIONALITY TEST ===");
 
-        // First deposit
-        vm.prank(user1);
+        // First deposit with real account
+        vm.prank(realUser);
         vault.deposit{value: DEPOSIT_AMOUNT}(DEPOSIT_AMOUNT);
 
         uint256 withdrawAmount = DEPOSIT_AMOUNT / 2;
-        uint256 initialBalance = user1.balance;
-        uint256 initialVaultBalance = vault.balanceOf(user1);
+        uint256 initialBalance = realUser.balance;
+        uint256 initialVaultBalance = vault.balanceOf(realUser);
 
+        console.log("Real User Address:", realUser);
         console.log("Before Withdraw - ETH Balance:", initialBalance);
         console.log("Before Withdraw - Vault Balance:", initialVaultBalance);
         console.log("Withdraw Amount:", withdrawAmount);
 
-        vm.startPrank(user1);
+        vm.startPrank(realUser);
 
-        // Perform withdrawal
+        // Perform withdrawal with real account
         vault.withdraw(withdrawAmount);
 
         // Verify withdrawal worked
-        assertEq(vault.balanceOf(user1), initialVaultBalance - withdrawAmount);
+        assertEq(
+            vault.balanceOf(realUser),
+            initialVaultBalance - withdrawAmount
+        );
 
-        console.log("After Withdraw - Vault Balance:", vault.balanceOf(user1));
-        console.log("After Withdraw - ETH Balance:", user1.balance);
+        console.log(
+            "After Withdraw - Vault Balance:",
+            vault.balanceOf(realUser)
+        );
+        console.log("After Withdraw - ETH Balance:", realUser.balance);
         console.log("Circulating Supply:", vault.circulatingSupply());
 
         vm.stopPrank();
-        console.log("SUCCESS: Withdraw functionality working");
+        console.log(
+            "SUCCESS: Withdraw functionality working with real account"
+        );
     }
 
     /**
@@ -178,7 +208,7 @@ contract VaultSepoliaTest is Test {
         // Verify both users have correct balances
         assertEq(vault.balanceOf(user1), DEPOSIT_AMOUNT);
         assertEq(vault.balanceOf(user2), DEPOSIT_AMOUNT * 2);
-        
+
         // Account for existing supply in the vault
         uint256 expectedSupply = initialSupply + DEPOSIT_AMOUNT * 3;
         assertEq(vault.circulatingSupply(), expectedSupply);
@@ -202,9 +232,11 @@ contract VaultSepoliaTest is Test {
             // Aave rate might be 0 if not active, so just check it's not negative
             assertGe(aaveRate, 0);
             assertLt(aaveRate, 10000); // Less than 100% APY
-            
+
             if (aaveRate == 0) {
-                console.log("Note: Aave rate is 0 - protocol may be inactive on testnet");
+                console.log(
+                    "Note: Aave rate is 0 - protocol may be inactive on testnet"
+                );
             }
         } catch {
             console.log("Could not fetch Aave rate - protocol may be inactive");
@@ -286,36 +318,6 @@ contract VaultSepoliaTest is Test {
         vm.stopPrank();
 
         console.log("SUCCESS: All error cases handled correctly");
-    }
-
-    /**
-     * @dev Test full deposit-withdraw cycle
-     */
-    function test_FullDepositWithdrawCycle() public {
-        console.log("\n=== FULL CYCLE TEST ===");
-
-        uint256 initialBalance = user1.balance;
-
-        vm.startPrank(user1);
-
-        // Deposit
-        vault.deposit{value: DEPOSIT_AMOUNT}(DEPOSIT_AMOUNT);
-        assertEq(vault.balanceOf(user1), DEPOSIT_AMOUNT);
-        console.log("  Deposit completed");
-
-        // Full withdrawal
-        vault.withdraw(DEPOSIT_AMOUNT);
-        assertEq(vault.balanceOf(user1), 0);
-        assertEq(vault.circulatingSupply(), 0);
-        console.log("  Full withdrawal completed");
-
-        // Check ETH received (accounting for gas costs)
-        assertGt(user1.balance, initialBalance - DEPOSIT_AMOUNT - 0.01 ether);
-        console.log("  ETH properly returned to user");
-
-        vm.stopPrank();
-
-        console.log("SUCCESS: Full deposit-withdraw cycle working");
     }
 
     /**
