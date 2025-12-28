@@ -47,26 +47,35 @@ keepers. It continuously calculates real-time APYs across Aave and Compound, aut
 pool. This replaces passive stagnation with a self-optimizing, zero-intervention strategy that captures peak yield 24/7.
 
 ---  
-<!-- 
+
 ## How It Works 
 
-The working mechanism of the dapp can be broken down into 4 steps
+The working mechanism of the project can be broken down into 3 workflows - switching pools, deposit ancd withdraw workflows
 
-1. **User Registration**:
-   - The user signs up by generating a funding account.
-   - This can be funded with REACT tokens or ETH and USDC on Base and other supported chains.
-2. **Making a Deployment**:
-   - The user inputs the addresses of the reactive and callback contracts and the signature hash of the event they want to track.
-   - The user sepicifiies the balance threshold and the refill amounts.
-   - The monitoring reactive contract and the corresponding funding callback contract are deployed using the provided parameters.
-3. **Monitoring a Trigger event**:
-   - The monitoring reactive contract picks up an event from the callback contract being monitored and emits a "Callback" event to call the funding function on the funding contract.
-   - The funding function on the funding contract is called by the system contract, if the contracts balances are below the user specified threshold then REACT/native tokens are sent to the user specified contracts to keep them active.
-4. **Contract Reactivation**:
-   - If the contracts are inactive then the "coverDebt()" function is called to reactivate them.
+1. **Pool Switching**:
+   - The CronReactive contract reacts cron events from the system contract.
+   - The CronReactive calls the callback function on the vault contract to check for the current optimal pool.
+   - The vault contract checks for the best pool and checks the yield difference and if it is more the threshold (set to 1%).
+   - The vault contract calls the withdraw function on the current pool.
+   - The vault contract calls the supply function on the optimal pool with the redeemed WETH.
+2. **Deposit**:
+   - A user calls the deposit function with some ETH to be deposited in the vault.
+   - The vault contract calls the deposit function on the WETH contracts to obtain WETH.
+   - The vault contract then calls the supply function on the current pool - the pool with the best yield.
+   - An equivalent value of vault tokens are minted to the user.
+3. **Withdraw**:
+   - The user calls the withdraw function with the amount they want to withdraw.
+   - The user's vault tokens are burnt.
+   - The vault contract calls the withdraw function on the current pool.
+   - The vault contract also calls the withdraw function on WETH contract and sends the redeemed ETH to the user.
+
+The diagrams below describe the above mentioned workflows
+
+![deposit/withdraw](./assets/deposit-withdraw.png)
+![pool-switching](./assets/pool-switching.png)
 
 ---  
-
+<!-- 
 ## Technologies Used  
 
 | **Technology**    | **Purpose**                                              |  
