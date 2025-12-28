@@ -80,105 +80,88 @@ The diagrams below describe the above mentioned workflows
 </p>
 
 ---  
-<!-- 
+
 ## Technologies Used  
 
 | **Technology**    | **Purpose**                                              |  
 |-------------------|----------------------------------------------------------|
-| **Reactive**      | Use of Reactive's reactive and callback contracts.       |  
-| **Firestore**     | Tracking platform activity and metrics.                  |
-| **Wagmi**         | Smart contract interaction.                              | 
+| **Reactive**      | Use of Reactive's cron and callback functionality.       |  
+| **Aave**          | Supplying to Aave WETH pool.                             |
+| **Compound**      | Supplying to Compound WETH pool.                         | 
 | **Next.js**       | Frontend framework for building the user interface.      |  
 
 ### Reactive
 
-Reactivate was built to prevent and solve inactive reactive and callback contracts, but in order to accomplish we also used these utilities.
-Another problem that we aimed to solve with the project is the tideous process it takes for developers to get REACT mainnet tokens to power their contracts, 
-to solve this we also made use of reactive contracts to make funding their dev accounts easier, this was accomplished by reactive contracts that handled the "bridging process".
+ReactiveVault was built to leverage the Reactive Network's native cron functionality, allowing the vault to autonomously monitor
+real-time APY differentials and execute rebalancing logic on-chain. This approach eliminates the need for centralized off-chain
+triggers, ensuring that capital is autonomously captured by the vault. The Reactive Network's cron functionality allows the vault to
+continuously calculate real-time APYs across Aave and Compound, automatically migrating capital to the highest-yielding pool.
+
+Another use of the reactive network is the use of callback in Vault contract to execute pool switching.
 Below is a description of the reactive stack was used in the project.
 
-- Contract Funding - To keep track of a reactive contract's balance we wrote a reactive contract that tracks the contract's usage 
-i.e a reactive contract that listens for the event that is emitted in a callback contract and then checks the balance of both 
-the first reactive contract and that of it's callback if any of them have below the specified threshold then the funder contract 
-sends the refill amount to the reactive contract and/or the callback and if the callback and/or reactive contract is inactive then it calls the "coverDebt()" function 
-to reactivate them. Below are the code snippets that show how this was implemented.
-deploying a funder contract
+- Cron functionality - The CronReactive contract subscribes to the cron event from the system contract and reacts to them by calling the callback function on the vault contract.
+Below are the code snippets that show how this was implemented.
+
+subscribing to cron event
 ```solidity
-  function createFunder(address dev, address callbackContract, address reactiveContract, uint256 refillValue, uint256 refillthreshold) payable external {
-      address devAccount = IAccountFactory(accountFactory).devAccounts(dev);
-      uint256 devAccountBalance = devAccount.balance;
-      uint256 withdrawAmount = (refillValue * 2);
-      uint256 initialFundAmount = withdrawAmount + 2 ether;
-
-      require(devAccountBalance >= withdrawAmount, "Not enough REACT in dev account");
-
-      Funder newReactiveFunder = new Funder{value: initialFundAmount}(callbackContract, reactiveContract, refillValue, refillthreshold, devAccount);
-      address funderAddress = address(newReactiveFunder);
-
-      IDevAccount(devAccount).withdraw(address(this), initialFundAmount);
-      IDevAccount(devAccount).whitelist(funderAddress);
-
-      latestDeployed = funderAddress;
-
-      emit Setup(dev, funderAddress);
-  }
-```
-deploying a reactive contract to track callback events
-```solidity
-    function createReactive(address funderContract, address callbackContract, uint256 eventTopic) payable external {
-        Reactive newReactive = new Reactive{value: 2 ether}(funderContract, callbackContract, eventTopic);
-        latestDeployed = address(newReactive);
-        
-        emit Setup(msg.sender, address(newReactive));
+constructor(address _vault, uint256 _cron_topic) payable {
+    vault = _vault;
+    cron_topic = _cron_topic;
+    service = ISystemContract(payable(SERVICE));
+    if (!vm) {
+        service.subscribe(
+            block.chainid,
+            address(service),
+            _cron_topic,
+            REACTIVE_IGNORE,
+            REACTIVE_IGNORE,
+            REACTIVE_IGNORE
+        );
     }
+}
 ```
-funding a reactive and/or callback Contract
+ 
+calling the callback function
 ```solidity
-    function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender) {
-        uint256 callbackBal = callbackReceiver.balance;
-        if (callbackBal <= refillThreshold) {
-            (bool success, ) = callbackReceiver.call{value: refillValue}("");
-            require(success, "Payment failed.");
+function react(LogRecord calldata log) external vmOnly {
 
-            IDevAccount(devAccount).withdraw(address(this), refillValue);
+    /**
+     * @dev Encode callback payload for vault optimization check
+     * Calls the callback function on the vault with zero address parameter
+     */
+    bytes memory payload = abi.encodeWithSignature(
+        "callback(address)",
+        address(0)
+    );
 
-            emit refillHandled(address(this), callbackReceiver);
-        } else {
-            emit callbackHandled(address(this));
-        }
-
-        uint256 reactiveBal = reactiveReceiver.balance;
-        if (reactiveBal <= refillThreshold) {
-            (bool success, ) = reactiveReceiver.call{value: refillValue}("");
-            require(success, "Payment failed.");
-
-            IDevAccount(devAccount).withdraw(address(this), refillValue);
-
-            emit refillHandled(address(this), reactiveReceiver);
-        } else {
-            emit callbackHandled(address(this));
-        }
-
-    }
+    emit Callback(chainId, vault, GAS_LIMIT, payload);
+}
 ```
-reactivating an inactive contract
+
+The full code can be found [here](https://github.com/NatX223/ReactiveVault/blob/main/Contracts/src/CronReactive.sol)
+
+- Callback functionality - The CronReactive contract calls the callback function on the vault contract to check for the current optimal pool. The vault contract checks for the best pool and checks the yield difference and if it is more the threshold (set to 1%). The vault contract calls the withdraw function on the current pool. The vault contract calls the supply function on the optimal pool with the redeemed WETH. Below are the code snippets that show how this was implemented.
+
 ```solidity
-    function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender) {
-        uint256 callbackDebt = ISystem(SYSTEM_CONTRACT).debts(callbackContract);
-        uint256 reactiveDebt = ISystem(SYSTEM_CONTRACT).debts(reactiveContract);
-        if (callbackDebt > 0) {
-            IAbsctractPayer(callbackContract).coverDebt();
-            emit debtPaid(address(this));
-        }
+function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender) {
+    uint256 aaveRate = aaveRateFetcher();
+    uint256 compRate = compoundRateFetcher();
 
-        if (reactiveDebt > 0) {
-            IAbsctractPayer(reactiveContract).coverDebt();
-            emit debtPaid(address(this));
-        }
+    bool aaveBetter = (aaveRate > (compRate + YIELD_THRESHOLD)) && (currentPool == 1);
+    bool compBetter = (compRate > (aaveRate + YIELD_THRESHOLD)) && (currentPool == 0);
+
+    if (aaveBetter || compBetter) {
+        _switchPool(aaveBetter ? 0 : 1);
+    } else {
+        emit OptimalPoolActive(currentPool, aaveRate, compRate);
     }
+}
 ```
-The full code can be found [here](https://github.com/NatX223/Reactivate/tree/main/Contracts/src)
 
+The full code can be found [here](https://github.com/NatX223/ReactiveVault/blob/main/Contracts/src/Vault.sol)
+
+<!--
 - Bridging Tokens - In order to fund dev accounts with ETH from Base, we built a mini base bridge that devs can deposit to then the emitted 
 "Received(address,uint256)" is tracked by a reactive contract deployed n REACT mainnet and a corresponding callback to dispense the REACT tokens.
 Here are some code snippets
