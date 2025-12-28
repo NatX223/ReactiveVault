@@ -348,7 +348,6 @@ forge test -vv
 
 # Run specific test contracts
 forge test --match-contract VaultSepolia.t.sol -vv
-forge test --match-contract VaultSimple.t.sol -vv
 
 # Run with gas reporting
 forge test --gas-report -vv
