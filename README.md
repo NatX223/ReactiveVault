@@ -71,8 +71,8 @@ The working mechanism of the project can be broken down into 3 workflows - switc
 
 The diagrams below describe the above mentioned workflows
 
-[deposit/withdraw](./assets/deposit-withdraw.png)
-[pool-switching](./assets/pool-switching.png)
+[deposit/withdraw](https://github.com/NatX223/ReactiveVault/blob/main/assets/deposit-withdraw.png)
+[pool-switching](https://github.com/NatX223/ReactiveVault/blob/main/assets/pool-switching.png)
 
 ---  
 <!-- 
