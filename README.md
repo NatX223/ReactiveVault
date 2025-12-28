@@ -13,9 +13,10 @@ ReactiveVault - yield optimizing DeFi vault
 3. [Solution](#solution)  
 4. [How It Works](#how-it-works)  
 5. [Technologies Used](#technologies-used)  
-6. [Setup and Deployment](#setup-and-deployment)  
-7. [Future Improvements](#future-improvements)  
-8. [Acknowledgments](#acknowledgments)  
+6. [Addresses and TX hashes](#addresses-and-tx-hashes)
+7. [Setup and Deployment](#setup-and-deployment)  
+8. [Future Improvements](#future-improvements)  
+9. [Acknowledgments](#acknowledgments)  
 
 ---  
 
@@ -141,7 +142,8 @@ function react(LogRecord calldata log) external vmOnly {
 
 The full code can be found [here](https://github.com/NatX223/ReactiveVault/blob/main/Contracts/src/CronReactive.sol)
 
-- Callback functionality - The CronReactive contract calls the callback function on the vault contract to check for the current optimal pool. The vault contract checks for the best pool and checks the yield difference and if it is more the threshold (set to 1%). The vault contract calls the withdraw function on the current pool. The vault contract calls the supply function on the optimal pool with the redeemed WETH. Below are the code snippets that show how this was implemented.
+- Callback functionality - The CronReactive contract calls the callback function on the vault contract to check for the current optimal pool. The vault contract checks for the best pool and checks the yield difference and if it is more the threshold (set to 1%). The vault contract calls the withdraw function on the current pool. The vault contract calls the supply function on the optimal pool with the redeemed WETH.
+Below are the code snippets that show how this was implemented.
 
 ```solidity
 function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender) {
@@ -157,91 +159,140 @@ function callback(address sender) external authorizedSenderOnly rvmIdOnly(sender
         emit OptimalPoolActive(currentPool, aaveRate, compRate);
     }
 }
+
+function _switchPool(uint8 targetPool) internal {
+    uint8 fromPool = currentPool;
+    
+    // 1. Withdraw ALL (including interest dust)
+    if (currentPool == 0) {
+        Pool.withdraw(aaveWeth, type(uint256).max, address(this));
+    } else {
+        Comet.withdraw(compoundWeth, type(uint256).max);
+    }
+
+    // 2. Identify new balance (Principal + Interest)
+    uint256 totalToMove = IERC20(targetPool == 0 ? aaveWeth : compoundWeth).balanceOf(address(this));
+
+    // 3. Supply to new target
+    if (targetPool == 0) {
+        convertwethComTowethAave(totalToMove);
+        Pool.supply(aaveWeth, totalToMove, address(this), 0);
+    } else {
+        convertwethAaveTowethCom(totalToMove);
+        Comet.supply(compoundWeth, totalToMove);
+    }
+
+    currentPool = targetPool;
+    emit PoolSwitched(fromPool, targetPool, totalToMove);
+}
 ```
 
 The full code can be found [here](https://github.com/NatX223/ReactiveVault/blob/main/Contracts/src/Vault.sol)
 
-<!--
-- Bridging Tokens - In order to fund dev accounts with ETH from Base, we built a mini base bridge that devs can deposit to then the emitted 
-"Received(address,uint256)" is tracked by a reactive contract deployed n REACT mainnet and a corresponding callback to dispense the REACT tokens.
-Here are some code snippets
-receive function on base bridge contract
+### Aave
+
+Aave was used as one of the pools used in the project, the supply and withdraw functions were called in the vault contract.
+The Aave yield was calculated to get the best yiled.
+Below are the code snippets that show how this was implemented.
+
+supply function
 ```solidity
-    receive() external payable {
-        if (msg.value > 0.00024 ether) {
-            (bool success, ) = msg.sender.call{value: msg.value}("");
-            require(success, "Payment value exceeded.");
-        } else {
-            emit Received(
-            msg.sender,
-            msg.value
-        );
-        }
+function _supply(uint256 amount) internal {
+    if (currentPool == 0) {
+        obtainAaveWETH(amount);
+        Pool.supply(aaveWeth, amount, address(this), 0);
+    } else {
+        obtainCompoundWETH(amount);
+        Comet.supply(compoundWeth, amount);
     }
-```
-bridge react function
-```solidity
-    function react(LogRecord calldata log) external vmOnly {
-        address recipient = address(uint160(log.topic_1));
-        uint256 sentValue = uint256(log.topic_2);
-
-        bytes memory payload = abi.encodeWithSignature(
-            "callback(address, address, uint256)",
-            address(0),
-            recipient,
-            sentValue
-        );
-
-        emit Callback(
-        REACT_ID,
-        callbackHandler,
-        GAS_LIMIT,
-        payload
-    );
-    }
-```
-callback on the bridge callback contract
-```solidity
-    function callback(address sender, address recipient, uint256 sentValue) external authorizedSenderOnly rvmIdOnly(sender) {
-        address devAccount = IAccountFactory(accountFactoryContract).devAccounts(recipient);
-        if (devAccount == address(0)) {
-            uint256 receiveValue = (sentValue * rateNum) / rateDen;
-            (bool success, ) = recipient.call{value: receiveValue}("");
-            require(success, "brdging failed.");
-
-            emit bridgeHandled(recipient, sentValue, receiveValue);
-        } else {
-            uint256 receiveValue = (sentValue * rateNum) / rateDen;
-            (bool success, ) = devAccount.call{value: receiveValue}("");
-            require(success, "brdging failed.");
-
-            emit bridgeHandled(recipient, sentValue, receiveValue);
-        }
-    }
+}
 ```
 
-- Smart contract factories were utilized to make it easier to quickly deploy the needed contracts here their addresses on the react mainnet.
+withdraw function
+```solidity
+function _withdrawFromCurrentPool(uint256 amount) internal {
+    if (currentPool == 0) {
+        Pool.withdraw(aaveWeth, amount, address(this));
+    } else {
+        Comet.withdraw(compoundWeth, amount);
+    }
+}
+```
 
-| **Contract**            | **Addres**                                 | **Function**                                                             |
-|-------------------------|--------------------------------------------|--------------------------------------------------------------------------|
-| **AccountFactory**      | 0xD2401b212eFc78401b51C68a0CC92B1163b1e6db | Deploying dev accounts for users - these are used to fund their contracts|
-| **FunderFactory**       | 0x504731A1b6a7706dCef75f42DEE72565D41B097C | Deploying funder callback contracts.                                     |
-| **ReactiveFactory**     | 0x534028e697fbAF4D61854A27E6B6DBDc63Edde8c | Deploying reactive contracts that track callback.                        |
-| **DebtPayerFactory**    | 0x3054Ea734dd290DcC3bf032bE50493ABd4361910 | Deploying debt payer callback contracts.                                 |
-| **DebtReactiveFactory** | 0xB89f13F648c554cb18A120BA82E42Beda4557792 | Deploying reactive contracts that track contract status.                 |
+calculating yield
+```solidity
+/**
+ * @notice Fetches current lending rate from Aave protocol
+ * @return Current Aave lending rate in basis points (e.g., 500 = 5%)
+ * @dev Converts from RAY precision to basis points for easier comparison
+ */
+function aaveRateFetcher() public view returns (uint256) {
+    DataTypes.ReserveData memory data = Pool.getReserveData(aaveWeth);
+    return (uint256(data.currentLiquidityRate) * 10000) / RAY;
+}
+```
 
-Below is a table showing example contracts and their transaction hashes.
+### Compound
 
-| **Contract**            | **Function**                               | **TransactionHash**                                                      |
-|-------------------------|--------------------------------------------|--------------------------------------------------------------------------|
-| **DevAccount**          | Dev Account funding                        | 0xabde594de4e1f00badd7d9b85b4e50d41b578908a8ef51fe744facdd9908541e       |
-| **FunderReactive**      | Tracking event on callback contract        | 0x3001c5bccb5f7f492307b1acf73a04c37a667c4a543b5e1f510f17da08066b8d       |
-| **FunderContract**      | Funding reactive and/or callback contract  | 0x060fef5c78bcaee31648f9698c2904c36a93c84cc9bbcf70f05837c4264dc046       |
+Compound was used as one of the pools used in the project, the supply and withdraw functions were called in the vault contract.
+The Compound yield was calculated to get the best yiled.
+Below are the code snippets that show how this was implemented.
 
-### Node.js
+supply function
+```solidity
+function _supply(uint256 amount) internal {
+    if (currentPool == 0) {
+        obtainAaveWETH(amount);
+        Pool.supply(aaveWeth, amount, address(this), 0);
+    } else {
+        obtainCompoundWETH(amount);
+        Comet.supply(compoundWeth, amount);
+    }
+}
+```
 
-The project utilizes a backend to improve the user experience, especially when deploying contracts like the funder and debt payer contracts. The backend was
-developed using Node.js and Express.js, it handles user registration, contract deployment, and other related tasks.
+withdraw function
+```solidity
+function _withdrawFromCurrentPool(uint256 amount) internal {
+    if (currentPool == 0) {
+        Pool.withdraw(aaveWeth, amount, address(this));
+    } else {
+        Comet.withdraw(compoundWeth, amount);
+    }
+}
+```
+
+calculating yield
+```solidity
+/**
+ * @notice Fetches current lending rate from Compound v3 protocol
+ * @return Current Compound lending rate in basis points (e.g., 500 = 5%)
+ * @dev Calculates annualized rate from per-second rate and converts to basis points
+ */
+function compoundRateFetcher() public view returns (uint256) {
+    uint256 utilization = Comet.getUtilization();
+    uint256 supplyRate = uint256(Comet.getSupplyRate(utilization));
+    return (supplyRate * SECONDS_PER_YEAR * 10000) / WAD;
+}
+```
+
+## Addresses and TX hashes
+The project was deployed on the sepolia and lasna with the following addresses.
+
+| **Contract**            | **Addres**                                 |
+|-------------------------|--------------------------------------------|
+| **Vault**      | [0x60E3567B0987c5bE1A01f21114ed79c3e9dB6A2E](https://sepolia.etherscan.io/address/0x60E3567B0987c5bE1A01f21114ed79c3e9dB6A2E) |
+| **CronReactive**       | [0x8D9E25C7b0439781c7755e01A924BbF532EDf24d](https://lasna.reactscan.net/address/0x58e95d9300254fbba4a6b0b8abc5e94bf9dc4c52/contract/0x8D9E25C7b0439781c7755e01A924BbF532EDf24d) |
+
+Below is a table the transaction hashes.
+
+| **Function**                               | **TransactionHash**                                                      |
+|--------------------------------------------|--------------------------------------------------------------------------|
+| **Deposit**          | [0xe019afa6cf31ade3acfa87aee03179ccdb29d0753105c26f6555e1ed24f17b7f](https://sepolia.etherscan.io/tx/0xe019afa6cf31ade3acfa87aee03179ccdb29d0753105c26f6555e1ed24f17b7f) |
+| **Withdraw**      | [0xb3cd834bcab7638fec4ddc3e48c09ab9c815ba44566456de5b00f5634aa05236](https://sepolia.etherscan.io/tx/0xb3cd834bcab7638fec4ddc3e48c09ab9c815ba44566456de5b00f5634aa05236) |
+| **Reacting to Cron Event**      | [0xfe925fba647ddd857e04a866811f7413a75a887c95db5139856a8e4dc6b810a6](https://lasna.reactscan.net/address/0x58e95d9300254fbba4a6b0b8abc5e94bf9dc4c52/9429) |
+| **Callback**      | [0x5fe2e88128b2ba3f813d3aea0bd074b37484f651b474baebac23b7ab7ce67ae5](https://sepolia.etherscan.io/tx/0x5fe2e88128b2ba3f813d3aea0bd074b37484f651b474baebac23b7ab7ce67ae5) |
+
 
 ## Setup and Deployment  
 
@@ -255,7 +306,7 @@ developed using Node.js and Express.js, it handles user registration, contract d
 The repository has to be cloned first
 
 ```bash  
-  git clone https://github.com/NatX223/Reactivate  
+  git clone https://github.com/NatX223/ReactiveVault  
 ```
 - Smart contracts
 
@@ -270,76 +321,46 @@ The repository has to be cloned first
 3. Set up environment variables:
   ```  
   PRIVATE_KEY=<private key>
-  REACT_RPC_URL=https://mainnet-rpc.rnk.dev/
+  LASNA_RPC_URL=https://lasna-rpc.rnk.dev/
+  SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+
   ```  
 4. Compile smart contracts:  
   ```bash  
   forge build 
   ```  
 5. Run deployment scripts:
-  deploy dev account
-  - using the factory
+  deploy the Vault contract
   ```bash
-  cast send --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY accountFactoryAddress "createAccount(address)" 0xyouraddress --value initialfundamountether
+  forge create --broadcast --rpc-url sepoliaRPC --private-key $PRIVATE_KEY src/Vault.sol:Vault --value 0.1ether --constructor-args 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c 0x2D5ee574e710219a521449679A4A7f2B43f046ad 0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A 0x2943ac1216979aD8dB76D9147F64E61adc126e96 ReactVault RCTVLT
   ```
-  - deploying directly
+  - deploy CronReactive
   ```bash
-  forge create --broadcast --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY src/account/devAccount.sol:DevAccount --value initialfundamountether --constructor-args 0xyouraddress
+  forge create --broadcast --rpc-url lasnaRPC --private-key $PRIVATE_KEY src/CronReactive.sol:CronReactive --value 1ether --constructor-args 0xVaultAddress 0xPreferedCronTopic
   ```
-  deploy funder(callback) contract
-  - using the factory
-  ```bash
-  cast send --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY funderFactoryAddress "createFunder(address,address,address,uint256,uint256)" 0xyouraddress 0xcallbackContract 0xreactiveContract refillValue refillthreshold --value initialfundamountether
-  ```
-  - deploying directly
-  ```bash
-  forge create --broadcast --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY src/funder/funder.sol:Funder --value initialfundamountether --constructor-args 0xcallbackContract 0xreactiveContract refillValue refillthreshold 0xyourDevAccount
-  ```
-  deploy reactive contract
-  - getting funder contract address
-  ```bash
-  cast call --rpc-url $REACT_RPC_URL funderFactoryAddress "latestDeployed()"
-  ```
-  - using the factory
-  ```bash
-  cast send --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY reactiveFactoryAddress "createReactive(address,address,uint256)" 0xdeployedfunderaddress 0xcallbackContract calleventtopic --value initialfundamountether
-  ```
-  - deploying directly
-  ```bash
-  forge create --broadcast --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY src/funder/reactive.sol:Reactive --value initialfundamountether --constructor-args 0xdeployedfunderaddress 0xcallbackContract calleventtopic
-  ```
-  deploy debt payer contract
-  - using debt payer factory
-  ```bash
-  cast send --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY debtPayerFactoryAddress "createPayer(address,address,address)" 0xyouraddress 0xcallbackContract 0xreactiveContract --value initialfundamountether
-  ```
-  - deploying directly
-  ```bash
-  forge create --broadcast --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY src/debtPayer/debtPayer.sol:DebtPayer --value initialfundamountether --constructor-args 0xcallbackContract 0xreactiveContract
-  ```
-  deploy debt reactive contract
-  - getting debt payer address
-  ```bash
-  cast call --rpc-url $REACT_RPC_URL debtPayerFactoryAddress "latestDeployed()"
-  ```
-  - using debt reactive factory
-  ```bash
-  cast send --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY debtReactiveFactoryAddress "createPayerReactive(address,address,address)" 0xyouraddress 0xdebtpayerContract 0xfunderContract --value initialfundamountether
-  ```
-  - deploying directly
-  ```bash
-  forge create --broadcast --rpc-url $REACT_RPC_URL --private-key $PRIVATE_KEY src/debtPayer/debtPayerReactive.sol:DebtPayerReactive --value initialfundamountether --constructor-args 0xyouraddress 0xdebtpayerContract 0xfunderContract
-  ```
+## Testing
+
+### Run Tests
+
+```bash
+# Run all tests
+forge test -vv
+
+# Run specific test contracts
+forge test --match-contract VaultSepolia.t.sol -vv
+forge test --match-contract VaultSimple.t.sol -vv
+
+# Run with gas reporting
+forge test --gas-report -vv
+```
 ---  
 
 ## Future Improvements
 
-1. Enable funding contracts to track callback events from other chains.
-2. Extensive audits on the protocol's smart contracts.
-3. Purchasing more REACT tokens to aid seamless payment "bridging".
+1. Deploying a hybrid system to monitor events that could cause huge changes to APY.
 
 ---  
 
 ## Acknowledgments  
 
-Special thanks to **BUIDL WITH REACT x Dorahacks Hackathon 2025** organizers: REACT and other sponsors like Base. The REACT products played a pivotal role in building Reactivate functionality and impact. Special thanks to all builders and mentors - Ivan and Constantine for all the help rendered during the build phase. -->
+Special thanks to **REACTIVE NETWORK x Dorahacks** for organizing the Reactive bounties 2.0. Honorable mention to Aave and Compound.
